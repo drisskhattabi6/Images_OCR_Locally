@@ -1,12 +1,10 @@
-import io, os, shutil
+import os, shutil
 import logging
+import mimetypes
+import base64
 import subprocess
 import streamlit as st
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import simpleSplit
 from dotenv import load_dotenv
-from PIL import Image
 from ocr import openrouter_perform_ocr, ollama_perform_ocr
 
 load_dotenv()
@@ -18,6 +16,27 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 # Set up logging
 logger = logging.getLogger(__name__)
 logger.info(f"Streamlit app is running")
+
+def display_message(file_path):
+    mime_type, _ = mimetypes.guess_type(file_path)
+
+    if isinstance(content, str) and content.startswith("tmp"): 
+        mime_type, _ = mimetypes.guess_type(content)
+
+        if mime_type and mime_type.startswith("image/"):
+            st.image(content, width=250)
+
+        elif mime_type == "application/pdf":
+            with open(content, "rb") as f:
+                base64_pdf = base64.b64encode(f.read()).decode("utf-8")
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="250" height="400" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+
+        else:
+            st.markdown(f"Unsupported file type: {mime_type}")
+
+    else:
+        st.markdown(content)
 
 def get_available_models():
     """Fetches the installed Ollama models, excluding 'NAME' and models containing 'embed'."""
@@ -40,34 +59,28 @@ if not available_models:
 st.set_page_config(page_title="Local OCR", page_icon="🤖")
 st.markdown("#### 🗨️ Local OCR")
 
+def clear_temp_dir():
+    """Clears the temporary directory."""
+    temp_dir = "tmp"
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir, exist_ok=True)
+
+file_path = None
+
 with st.sidebar:
     st.title("Settings :")
 
-    # Upload the image
-    image = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+    # Upload the file
+    file = st.file_uploader("Upload File (image/pdf)", type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
-    if image is not None:
-        temp_dir = "tmp"
-        # Create temp directory if it doesn't exist
-        os.makedirs(temp_dir, exist_ok=True)
+    if file is not None:
+        # Save the uploaded file
+        file_path = os.path.join("tmp", file.name)
+        with open(file_path, "wb") as f:
+            f.write(file.getbuffer())
         
-        # Clear the temp directory before saving the new image
-        for filename in os.listdir(temp_dir):
-            file_path = os.path.join(temp_dir, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)  # remove file or link
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # remove folder if somehow exists
-            except Exception as e:
-                st.error(f"Failed to delete {file_path}. Reason: {e}")
-
-        # Save the uploaded image to the temp directory
-        image_path = os.path.join(temp_dir, image.name)
-        with open(image_path, "wb") as f:
-            f.write(image.getbuffer())
-
-        st.success(f"Image saved to {image_path}")
+        process = st.button("Process File")
 
     # User selects the model Provider
     llm_provider = st.selectbox("Select LLM Provider:", ['Openrouter', 'Ollama'], index=0)
@@ -82,6 +95,9 @@ with st.sidebar:
 
     if st.button("Clear Chat"):
         st.session_state.messages = []
+        clear_temp_dir()
+        st.session_state.file = None
+        file_path = None
         st.rerun()
 
 
@@ -91,30 +107,28 @@ if "messages" not in st.session_state:
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        content = message["content"]
+
+        display_message(content)
 
 st.markdown("----")
 
-if image_path:
-    st.session_state.messages.append({"role": "user", "content": image_path})
+if file_path and process:
+    st.session_state.messages.append({"role": "user", "content": file_path})
     with st.chat_message("user"):
-        st.markdown(image_path)
+        display_message(file_path)
 
     with st.chat_message("assistant"):
         try:
             with st.spinner("Thinking..."):
-                llm_response = ""
+                response = ""
                 if llm_provider == 'Ollama' :
-                    llm_response = ollama_perform_ocr(image_path=image_path)
+                    response = ollama_perform_ocr(image_path=file_path)
                 else : 
-                    llm_response = openrouter_perform_ocr(image_path=image_path, llm_name=selected_model)
-                    
-                response = f"""
-                {llm_response}
-                """
+                    response = openrouter_perform_ocr(file_path=file_path, llm_name=selected_model)
+
                 st.markdown(response)
 
-                # Store assistant response
                 st.session_state.messages.append({"role": "assistant", "content": response})
         except Exception as e:
             st.session_state.messages.append({"role": "assistant", "content": f"Error: {e}"})
