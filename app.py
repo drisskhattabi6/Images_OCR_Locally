@@ -1,4 +1,4 @@
-import io, os
+import io, os, shutil
 import logging
 import subprocess
 import streamlit as st
@@ -6,6 +6,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
 from dotenv import load_dotenv
+from PIL import Image
+from ocr import openrouter_perform_ocr, ollama_perform_ocr
 
 load_dotenv()
 
@@ -16,51 +18,6 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 # Set up logging
 logger = logging.getLogger(__name__)
 logger.info(f"Streamlit app is running")
-
-# Function to generate PDF
-def generate_pdf():
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-
-    y = height - 40  # Start position for text
-    max_width = width - 80  # Margin for text wrapping
-
-    c.setFont("Helvetica-Bold", 16)
-    header_text = "Conversation History"
-    text_width = c.stringWidth(header_text, "Helvetica-Bold", 16)
-    c.drawString((width - text_width) / 2, height - 40, header_text)
-
-    y -= 30  # Adjust position after header
-    c.setFont("Helvetica", 12)
-
-    for msg in st.session_state.messages:
-        role = "User" if msg["role"] == "user" else "LLM"
-        text = f"{role}: {msg['content']}"
-
-        # Separate user questions with a line
-        if msg["role"] == "user":
-            y -= 10
-            c.setStrokeColorRGB(0, 0, 0)
-            c.line(40, y, width - 40, y)
-            y -= 20  
-
-        # Wrap text within max_width
-        wrapped_lines = simpleSplit(text, c._fontname, c._fontsize, max_width)
-
-        for line in wrapped_lines:
-            c.drawString(40, y, line)
-            y -= 20
-            
-            # Handle page breaks
-            if y < 40:
-                c.showPage()
-                c.setFont("Helvetica", 12)
-                y = height - 40  # Reset position after new page
-
-    c.save()
-    buffer.seek(0)
-    return buffer
 
 def get_available_models():
     """Fetches the installed Ollama models, excluding 'NAME' and models containing 'embed'."""
@@ -86,10 +43,31 @@ st.markdown("#### 🗨️ Local OCR")
 with st.sidebar:
     st.title("Settings :")
 
-    images = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
-    if images is not None:
-        # Save the uploaded image to a temporary file
-        image_path = os.path.join("temp", images.name)
+    # Upload the image
+    image = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+
+    if image is not None:
+        temp_dir = "tmp"
+        # Create temp directory if it doesn't exist
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Clear the temp directory before saving the new image
+        for filename in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)  # remove file or link
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # remove folder if somehow exists
+            except Exception as e:
+                st.error(f"Failed to delete {file_path}. Reason: {e}")
+
+        # Save the uploaded image to the temp directory
+        image_path = os.path.join(temp_dir, image.name)
+        with open(image_path, "wb") as f:
+            f.write(image.getbuffer())
+
+        st.success(f"Image saved to {image_path}")
 
     # User selects the model Provider
     llm_provider = st.selectbox("Select LLM Provider:", ['Openrouter', 'Ollama'], index=0)
@@ -99,20 +77,8 @@ with st.sidebar:
         selected_model = st.selectbox("Select an Ollama model:", available_models, index=0)
 
     else : 
-        selected_model = st.text_input("Enter LLM Name:", value='qwen/qwq-32b:free')
+        selected_model = st.text_input("Enter LLM Name:", value='qwen/qwen2.5-vl-32b-instruct:free')
         # openrouter_api_key = st.text_input("Enter Openrouter API Key", type="password", value=os.getenv("OPENROUTER_API_KEY"))
-
-    # Button to download PDF
-    if st.button("Download Chat as PDF"):
-        if not st.session_state.messages:
-            st.warning("No messages to download.")
-        else :
-            pdf_buffer = generate_pdf()
-            st.download_button(
-                label="Download", data=pdf_buffer,
-                file_name="chat_history.pdf",
-                mime="application/pdf"
-            )
 
     if st.button("Clear Chat"):
         st.session_state.messages = []
@@ -129,41 +95,24 @@ for message in st.session_state.messages:
 
 st.markdown("----")
 
-if query := st.chat_input("Ask Me..."):
-    st.session_state.messages.append({"role": "user", "content": query})
+if image_path:
+    st.session_state.messages.append({"role": "user", "content": image_path})
     with st.chat_message("user"):
-        st.markdown(query)
+        st.markdown(image_path)
 
     with st.chat_message("assistant"):
         try:
             with st.spinner("Thinking..."):
                 llm_response = ""
                 if llm_provider == 'Ollama' :
-
-                    llm_response = ollama_chat()
-
-                    # st.markdown(f"""
-                    #     \n---- 
-                    #     Response Time: {response_time}, LLM Name: {selected_model}, Number of Retrieved Documents: {n_retrieved_docs}, Query Total Tokens: {query_token_count}, Prompt Token Count: {prompt_token_count}, Output Token Count: {output_token_count} | Document Type: {documnents_type}
-                    #     """)
-
-                    response = f"""
-                        {remove_tags(llm_response)}
-
-                        \n----
-                        Response Time: {response_time}, LLM Name: {selected_model}, Number of Retrieved Documents: {n_retrieved_docs}, Query Token Count: {query_token_count}, Prompt Token Count: {prompt_token_count}, Output Token Count: {output_token_count} | Document Type: {documnents_type}
-                        """
-
+                    llm_response = ollama_perform_ocr(image_path=image_path)
                 else : 
-                    llm_response, total_tokens = openrouter_chat(query, selected_model)
+                    llm_response = openrouter_perform_ocr(image_path=image_path, llm_name=selected_model)
                     
-                    response = f"""
-                        {remove_tags(llm_response)}
-
-                        \n----
-                        LLM Name: {selected_model} | Total Tokens : {total_tokens} | Number of Retrieved Documents: {n_results} | Document Type: {documnents_type}
-                        """
-                    st.markdown(response)
+                response = f"""
+                {llm_response}
+                """
+                st.markdown(response)
 
                 # Store assistant response
                 st.session_state.messages.append({"role": "assistant", "content": response})

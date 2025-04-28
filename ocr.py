@@ -8,13 +8,11 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
-
 SYSTEM_PROMPT = """Act as an OCR assistant. Analyze the provided image and:
 1. Recognize all visible text in the image as accurately as possible.
 2. Maintain the original structure and formatting of the text.
 3. If any words or phrases are unclear, indicate this with [unclear] in your transcription.
 Provide only the transcription without any additional comments."""
-
 
 def encode_image_to_base64(image_path):
     """Convert an image file to a base64 encoded string."""
@@ -39,47 +37,50 @@ def ollama_perform_ocr(image_path):
 
 
 # def generate_response2(query, scraped_data, llm_name='qwen/qwq-32b:free', retry=False) :
-def openrouter_perform_ocr(image_path, llm_name='qwen/qwq-32b:free') :
-
+def openrouter_perform_ocr(image_path, llm_name='qwen/qwen2.5-vl-32b-instruct:free') :
     print("--> Generate Response from OpenRouter LLM : ", llm_name)
-
     base64_image = encode_image_to_base64(image_path)
+    data_url = f"data:image/jpeg;base64,{base64_image}"
+
+    messages = [{
+        "role": "user",
+        "content": [{
+            "type": "text",
+            "text": SYSTEM_PROMPT
+        },
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": data_url
+            }
+        }]
+    }]
 
     response = requests.post(
-
-      url="https://openrouter.ai/api/v1/chat/completions",
-
-      headers={
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-      },
-
-      data=json.dumps({
-        "model": llm_name,
-        "messages": [
-          {
-            "role": "user",
-            "content": SYSTEM_PROMPT,
-            "images": [base64_image],
-          }
-        ],
-      })
+        url="https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        data = json.dumps({
+            "model": llm_name,
+            "messages": messages
+        })
     )
-
     response_data = json.loads(response.text)
 
-    print(response_data)
+    # print(response_data)
     if "error" in response_data:
       error_message = response_data["error"].get("message", "Unknown error")
-
-
       raise Exception(f"API Error: {error_message}")
     
     print( 'response_data : ', response_data["choices"][0]["message"]["content"])
+    print( 'type : ', type(response_data["choices"][0]["message"]["content"]))
+
     return response_data["choices"][0]["message"]["content"]
     
 if __name__ == "__main__":
-    image_path = "imgs/text_exp1.png"  # Replace with your image path
+    image_path = "imgs/text_exp1.png"
     result = openrouter_perform_ocr(image_path)
     if result:
         print("OCR Recognition Result:")
