@@ -20,14 +20,14 @@ logger.info(f"Streamlit app is running")
 def display_message(file_path):
     mime_type, _ = mimetypes.guess_type(file_path)
 
-    if isinstance(content, str) and content.startswith("tmp"): 
-        mime_type, _ = mimetypes.guess_type(content)
+    if isinstance(file_path, str) and file_path.startswith("tmp"): 
+        mime_type, _ = mimetypes.guess_type(file_path)
 
         if mime_type and mime_type.startswith("image/"):
-            st.image(content, width=250)
+            st.image(file_path, width=250)
 
         elif mime_type == "application/pdf":
-            with open(content, "rb") as f:
+            with open(file_path, "rb") as f:
                 base64_pdf = base64.b64encode(f.read()).decode("utf-8")
             pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="250" height="400" type="application/pdf"></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
@@ -36,7 +36,7 @@ def display_message(file_path):
             st.markdown(f"Unsupported file type: {mime_type}")
 
     else:
-        st.markdown(content)
+        st.markdown(file_path)
 
 def get_available_models():
     """Fetches the installed Ollama models, excluding 'NAME' and models containing 'embed'."""
@@ -57,7 +57,6 @@ if not available_models:
     st.error("No installed Ollama models found. Please install one using `ollama pull <model_name>`.")
 
 st.set_page_config(page_title="Local OCR", page_icon="🤖")
-st.markdown("#### 🗨️ Local OCR")
 
 def clear_temp_dir():
     """Clears the temporary directory."""
@@ -69,7 +68,8 @@ def clear_temp_dir():
 file_path = None
 
 with st.sidebar:
-    st.title("Settings :")
+    st.title("🗨️ Local OCR")
+    st.markdown("Settings :")
 
     # Upload the file
     file = st.file_uploader("Upload File (image/pdf)", type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
@@ -100,6 +100,12 @@ with st.sidebar:
         file_path = None
         st.rerun()
 
+    st.markdown("----")
+    st.info(""" Some Notes:
+    - Ollama models are installed locally. OpenRouter models are hosted on the cloud.
+    - **Note:** For OpenRouter, you need to set up your API key in the `.env` file.
+    - **Note:** For Ollama, you need to install the model using `ollama pull <model_name>` command.
+    - **Note:** Ollama is only for images, not for PDFs.""")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -107,9 +113,7 @@ if "messages" not in st.session_state:
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        content = message["content"]
-
-        display_message(content)
+        display_message(message["content"])
 
 st.markdown("----")
 
@@ -122,13 +126,18 @@ if file_path and process:
         try:
             with st.spinner("Thinking..."):
                 response = ""
+                # Determine file type
+                mime_type, _ = mimetypes.guess_type(file_path)
+
                 if llm_provider == 'Ollama' :
-                    response = ollama_perform_ocr(image_path=file_path)
+                    if mime_type and mime_type.startswith("image/"):
+                        response = ollama_perform_ocr(image_path=file_path)
+                    else:
+                        response = "Ollama only supports image files for OCR. Please upload a .jpg, .jpeg, or .png."
+                        st.warning(response)
                 else : 
                     response = openrouter_perform_ocr(file_path=file_path, llm_name=selected_model)
-
                 st.markdown(response)
-
                 st.session_state.messages.append({"role": "assistant", "content": response})
         except Exception as e:
             st.session_state.messages.append({"role": "assistant", "content": f"Error: {e}"})

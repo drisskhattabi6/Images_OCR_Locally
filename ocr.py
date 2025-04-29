@@ -33,7 +33,6 @@ def ollama_perform_ocr(image_path):
 
     return response['message']['content'].strip()
 
-
 # def generate_response2(query, scraped_data, llm_name='qwen/qwq-32b:free', retry=False) :
 def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:free') :
     print("--> Generate Response from OpenRouter LLM : ", llm_name)
@@ -43,18 +42,19 @@ def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:fre
     if ext == ".pdf":
         data_url = f"data:application/pdf;base64,{base64_file}"
         file_type = {
-            "type": "image_url",
-            "image_url": {
-                "url": data_url
-            }
-        }
-    else:
-        data_url = f"data:image/jpeg;base64,{base64_file}"
-        file_type = {
             "type": "file",
             "file": {
                 "filename": file_path,
                 "file_data": data_url
+            }
+        }
+        
+    else:
+        data_url = f"data:image/jpeg;base64,{base64_file}"
+        file_type = {
+            "type": "image_url",
+            "image_url": {
+                "url": data_url
             }
         }
 
@@ -63,10 +63,10 @@ def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:fre
         "content": [{
             "type": "text",
             "text": SYSTEM_PROMPT
-        }, file_type]
+            }, 
+            file_type
+        ]
     }]
-
-    # print("messages : ", messages)
 
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
