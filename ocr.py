@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+API_KEY = os.getenv('API_KEY')
+API_URL = "https://api.sambanova.ai/v1/chat/completions"
 
 SYSTEM_PROMPT = """Act as an OCR assistant. Analyze the provided image and:
 1. Recognize all visible text in the image as accurately as possible.
@@ -23,7 +24,7 @@ def ollama_perform_ocr(image_path):
     base64_image = encode_to_base64(image_path)
 
     response = ollama.chat(
-        model= "llama3.2-vision",
+        model= "llama3.2-vision:latest",
         messages= [{
             "role": "user",
             "content": SYSTEM_PROMPT,
@@ -34,24 +35,14 @@ def ollama_perform_ocr(image_path):
     return response['message']['content'].strip()
 
 # def generate_response2(query, scraped_data, llm_name='qwen/qwq-32b:free', retry=False) :
-def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:free') :
+# def perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:free') :
+def perform_ocr(file_path, llm_name='Llama-4-Maverick-17B-128E-Instruct') :
     print("--> Generate Response from OpenRouter LLM : ", llm_name)
     base64_file = encode_to_base64(file_path)
 
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext == ".pdf":
-        data_url = f"data:application/pdf;base64,{base64_file}"
-        file_type = {
-            "type": "file",
-            "file": {
-                "filename": file_path,
-                "file_data": data_url
-            }
-        }
-        
-    else:
-        data_url = f"data:image/jpeg;base64,{base64_file}"
-        file_type = {
+    # ext = os.path.splitext(file_path)[1].lower()
+    data_url = f"data:image/jpeg;base64,{base64_file}"
+    file_type = {
             "type": "image_url",
             "image_url": {
                 "url": data_url
@@ -69,9 +60,9 @@ def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:fre
     }]
 
     response = requests.post(
-        url="https://openrouter.ai/api/v1/chat/completions",
+        url=API_URL,
         headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json",
         },
         data = json.dumps({
@@ -91,7 +82,7 @@ def openrouter_perform_ocr(file_path, llm_name='qwen/qwen2.5-vl-32b-instruct:fre
     
 if __name__ == "__main__":
     image_path = "imgs/text_exp1.png"
-    result = openrouter_perform_ocr(image_path)
+    result = perform_ocr(image_path)
     if result:
         print("OCR Recognition Result:")
         print(result)

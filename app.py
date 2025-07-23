@@ -5,11 +5,11 @@ import base64
 import subprocess
 import streamlit as st
 from dotenv import load_dotenv
-from ocr import openrouter_perform_ocr, ollama_perform_ocr
+from ocr import perform_ocr, ollama_perform_ocr
 
 load_dotenv()
 
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+API_KEY = os.getenv('API_KEY')
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
@@ -72,9 +72,12 @@ with st.sidebar:
     st.markdown("Settings :")
 
     # Upload the file
-    file = st.file_uploader("Upload File (image/pdf)", type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
+    file = st.file_uploader("Upload File (image/pdf)", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed")
 
     if file is not None:
+        # Ensure the tmp directory exists
+        os.makedirs("tmp", exist_ok=True)
+
         # Save the uploaded file
         file_path = os.path.join("tmp", file.name)
         with open(file_path, "wb") as f:
@@ -83,15 +86,14 @@ with st.sidebar:
         process = st.button("Process File")
 
     # User selects the model Provider
-    llm_provider = st.selectbox("Select LLM Provider:", ['Openrouter', 'Ollama'], index=0)
+    llm_provider = st.selectbox("Select LLM Provider:", ['Sambanova', 'Ollama'], index=0)
 
     if llm_provider == 'Ollama' :
         # User selects the model to use
         selected_model = st.selectbox("Select an Ollama model:", available_models, index=0)
 
     else : 
-        selected_model = st.text_input("Enter LLM Name:", value='qwen/qwen2.5-vl-32b-instruct:free')
-        # openrouter_api_key = st.text_input("Enter Openrouter API Key", type="password", value=os.getenv("OPENROUTER_API_KEY"))
+        selected_model = st.text_input("Enter LLM Name:", value='Llama-4-Maverick-17B-128E-Instruct')
 
     if st.button("Clear Chat"):
         st.session_state.messages = []
@@ -102,10 +104,9 @@ with st.sidebar:
 
     st.markdown("----")
     st.info(""" Some Notes:
-    - Ollama models are installed locally. OpenRouter models are hosted on the cloud.
-    - **Note:** For OpenRouter, you need to set up your API key in the `.env` file.
-    - **Note:** For Ollama, you need to install the model using `ollama pull <model_name>` command.
-    - **Note:** Ollama is only for images, not for PDFs.""")
+    - Ollama models are installed locally. Sambanova models are hosted on the cloud.
+    - **Note:** For Sambanova, you need to set up your API key in the `.env` file.
+    - **Note:** For Ollama, you need to install a vision model like llama3.2-vision (`ollama pull llama3.2-vision`) command.""")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -114,8 +115,6 @@ if "messages" not in st.session_state:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         display_message(message["content"])
-
-st.markdown("----")
 
 if file_path and process:
     st.session_state.messages.append({"role": "user", "content": file_path})
@@ -130,13 +129,9 @@ if file_path and process:
                 mime_type, _ = mimetypes.guess_type(file_path)
 
                 if llm_provider == 'Ollama' :
-                    if mime_type and mime_type.startswith("image/"):
-                        response = ollama_perform_ocr(image_path=file_path)
-                    else:
-                        response = "Ollama only supports image files for OCR. Please upload a .jpg, .jpeg, or .png."
-                        st.warning(response)
+                    response = ollama_perform_ocr(image_path=file_path)
                 else : 
-                    response = openrouter_perform_ocr(file_path=file_path, llm_name=selected_model)
+                    response = perform_ocr(file_path=file_path, llm_name=selected_model)
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
         except Exception as e:
